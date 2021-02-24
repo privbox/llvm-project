@@ -116,6 +116,10 @@ cl::opt<bool> X86PadForBranchAlign(
     "x86-pad-for-branch-align", cl::init(true), cl::Hidden,
     cl::desc("Pad previous instructions to implement branch alignment"));
 
+cl::opt<unsigned> X86PrivSanInstrBoundary(
+    "x86-priv-san-boundary", cl::init(0), cl::NotHidden,
+    cl::desc("Specify an alignment that no instruction should cross"));
+
 class X86ELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   X86ELFObjectWriter(bool is64Bit, uint8_t OSABI, uint16_t EMachine,
@@ -140,6 +144,8 @@ class X86AsmBackend : public MCAsmBackend {
   bool needAlign(const MCInst &Inst) const;
   bool canPadBranches(MCObjectStreamer &OS) const;
   bool canPadInst(const MCInst &Inst, MCObjectStreamer &OS) const;
+  unsigned encodedInstrSize(MCObjectStreamer &OS, const MCInst &Inst);
+  void handleCrossBoundaryInstr(MCObjectStreamer &OS, const MCInst &Inst);
 
 public:
   X86AsmBackend(const Target &T, const MCSubtargetInfo &STI)
@@ -596,9 +602,70 @@ bool X86AsmBackend::needAlign(const MCInst &Inst) const {
           (AlignBranchType & X86::AlignBranchIndirect));
 }
 
+unsigned int X86AsmBackend::encodedInstrSize(MCObjectStreamer &OS, const MCInst &Inst) {
+  SmallVector<MCFixup, 4> Fixups;
+  SmallString<256> Code;
+  raw_svector_ostream VecOS(Code);
+  OS.getAssembler().getEmitter().encodeInstruction(Inst, VecOS, Fixups, STI);
+
+  return Code.size();
+}
+
+void X86AsmBackend::handleCrossBoundaryInstr(MCObjectStreamer &OS, const MCInst &Inst) {
+  if (!X86PrivSanInstrBoundary)
+    return;
+  // outs() << "emit ";
+  // Inst.dump_pretty(outs(), MCII->getName(Inst.getOpcode()));
+  // outs() << "\n";
+  MCFragment *F = OS.getCurrentFragment();
+  if (F->getKind() != MCFragment::FT_Data) {
+    // outs() << "non data fragment, emit alignment: " << uint32_t(F->getKind());
+    OS.emitCodeAlignment(X86PrivSanInstrBoundary);
+  } else if (  
+    (Inst.getOpcode() == X86::LOCK_PREFIX) ||
+    (Inst.getOpcode() == X86::REPNE_PREFIX) ||
+    (Inst.getOpcode() == X86::REP_PREFIX) ||
+    (Inst.getOpcode() == X86::REX64_PREFIX) ||
+    (Inst.getOpcode() == X86::XACQUIRE_PREFIX) ||
+    (Inst.getOpcode() == X86::XRELEASE_PREFIX)
+  ) {
+    // outs() << "prefix, emit alignment";
+    OS.emitCodeAlignment(X86PrivSanInstrBoundary);
+  } else {
+    MCInst ActualInst = Inst;
+    MCSection *Sec = OS.getCurrentSectionOnly();
+    MCAssembler &Assembler = OS.getAssembler();
+
+    bool MayRelax = mayNeedRelaxation(Inst, STI) || allowEnhancedRelaxation();
+    bool ForceRelax = Assembler.getRelaxAll() ||
+        (Assembler.isBundlingEnabled() && Sec->isBundleLocked());
+
+    if (MayRelax && !ForceRelax) {
+      OS.emitCodeAlignment(X86PrivSanInstrBoundary);
+    }
+
+    if (ForceRelax) {
+      while (mayNeedRelaxation(ActualInst, STI))
+        relaxInstruction(ActualInst, STI);
+    }
+
+    unsigned instrSize = encodedInstrSize(OS, ActualInst);
+    MCDataFragment *DF = static_cast<MCDataFragment *>(F);
+    // outs() << "cur size " << DF->getContents().size() << " ";
+    // outs() << "inst size " << instrSize << " ";
+    if ((DF->getContents().size() + instrSize) > X86PrivSanInstrBoundary) {
+      // outs() << "emit alignment"; 
+      OS.emitCodeAlignment(X86PrivSanInstrBoundary);
+    }
+  }
+  // outs() << "\n";
+}
+
 /// Insert BoundaryAlignFragment before instructions to align branches.
 void X86AsmBackend::emitInstructionBegin(MCObjectStreamer &OS,
                                          const MCInst &Inst) {
+  handleCrossBoundaryInstr(OS, Inst);
+
   CanPadInst = canPadInst(Inst, OS);
 
   if (!canPadBranches(OS))

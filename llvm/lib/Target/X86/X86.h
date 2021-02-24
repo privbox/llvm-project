@@ -146,6 +146,11 @@ FunctionPass *createX86LoadValueInjectionRetHardeningPass();
 FunctionPass *createX86SpeculativeLoadHardeningPass();
 FunctionPass *createX86SpeculativeExecutionSideEffectSuppression();
 
+
+FunctionPass *createX86PrivExecBrSanitizerPass();
+FunctionPass *createX86PrivExecLSSanitizerPass();
+FunctionPass *createX86PrivExecBrPostRegsSanitizerPass();
+
 void initializeEvexToVexInstPassPass(PassRegistry &);
 void initializeFixupBWInstPassPass(PassRegistry &);
 void initializeFixupLEAPassPass(PassRegistry &);
@@ -169,6 +174,9 @@ void initializeX86SpeculativeExecutionSideEffectSuppressionPass(PassRegistry &);
 void initializeX86PreTileConfigPass(PassRegistry &);
 void initializeX86TileConfigPass(PassRegistry &);
 void initializeX86LowerAMXTypeLegacyPassPass(PassRegistry &);
+void initializeX86PrivExecBrSanitizerPass(PassRegistry &);
+void initializeX86PrivExecLSSanitizerPass(PassRegistry &);
+void initializeX86PrivExecBrPostRegsSanitizerPass(PassRegistry &);
 
 namespace X86AS {
 enum : unsigned {

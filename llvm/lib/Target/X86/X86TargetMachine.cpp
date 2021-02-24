@@ -86,6 +86,9 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeX86Target() {
   initializeX86OptimizeLEAPassPass(PR);
   initializeX86PartialReductionPass(PR);
   initializePseudoProbeInserterPass(PR);
+  initializeX86PrivExecBrSanitizerPass(PR);
+  initializeX86PrivExecLSSanitizerPass(PR);
+  initializeX86PrivExecBrPostRegsSanitizerPass(PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -494,6 +497,8 @@ void X86PassConfig::addPreRegAlloc() {
   }
 
   addPass(createX86SpeculativeLoadHardeningPass());
+  addPass(createX86PrivExecBrSanitizerPass());
+  addPass(createX86PrivExecLSSanitizerPass());
   addPass(createX86FlagsCopyLoweringPass());
   addPass(createX86WinAllocaExpander());
 
@@ -572,6 +577,7 @@ void X86PassConfig::addPreEmitPass2() {
   if (TT.isOSWindows())
     addPass(createCFGuardLongjmpPass());
   addPass(createX86LoadValueInjectionRetHardeningPass());
+  addPass(createX86PrivExecBrPostRegsSanitizerPass());
 }
 
 bool X86PassConfig::addPreRewrite() {
